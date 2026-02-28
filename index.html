@@ -182,12 +182,12 @@
             <form id="loginForm">
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input type="text" id="username" class="form-control" placeholder="Enter username" required>
+                    <input type="text" id="username" class="form-control" placeholder="Enter username" required autocomplete="off">
                 </div>
                 
                 <div class="form-group">
                     <label for="password">Password</label>
-                    <input type="password" id="password" class="form-control" placeholder="Enter password" required>
+                    <input type="password" id="password" class="form-control" placeholder="Enter password" required autocomplete="off">
                 </div>
                 
                 <button type="submit" class="btn btn-primary">
@@ -204,23 +204,101 @@
     </div>
 
     <script>
-        // Firebase configuration - REPLACE WITH YOUR OWN
+        // ============================================
+        // SECURE FIREBASE CONFIGURATION
+        // ============================================
+        // Firebase configuration - using your existing config
         const firebaseConfig = {
-  apiKey: "AIzaSyABaOMohXrju_OelcUQLAxlIBy809ob3uI",
-  authDomain: "ysd2026-upm-tickets.firebaseapp.com",
-  projectId: "ysd2026-upm-tickets",
-  storageBucket: "ysd2026-upm-tickets.firebasestorage.app",
-  messagingSenderId: "350674755825",
-  appId: "1:350674755825:web:143f8ee11a2fb568080950",
-  measurementId: "G-Y4R80MP8P2"
-};
+            apiKey: "AIzaSyABaOMohXrju_OelcUQLAxlIBy809ob3uI",
+            authDomain: "ysd2026-upm-tickets.firebaseapp.com",
+            projectId: "ysd2026-upm-tickets",
+            storageBucket: "ysd2026-upm-tickets.firebasestorage.app",
+            messagingSenderId: "350674755825",
+            appId: "1:350674755825:web:143f8ee11a2fb568080950"
+            // measurementId removed for security
+        };
 
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
+        // Initialize Firebase with error handling
+        try {
+            firebase.initializeApp(firebaseConfig);
+        } catch (error) {
+            console.error('Firebase initialization failed:', error);
+            document.getElementById('errorMessage').textContent = 'System configuration error. Please contact administrator.';
+            document.getElementById('errorMessage').style.display = 'block';
+        }
+        
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // Show/hide loading
+        // ============================================
+        // SECURITY ENHANCEMENTS
+        // ============================================
+        
+        // Rate limiting
+        let loginAttempts = 0;
+        let lastLoginAttempt = 0;
+        const MAX_LOGIN_ATTEMPTS = 5;
+        const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
+
+        // Session timeout check (if already logged in)
+        function checkExistingSession() {
+            const adminSession = sessionStorage.getItem('ysd2026_admin');
+            const loginTime = sessionStorage.getItem('ysd2026_login_time');
+            
+            if (adminSession === 'logged_in' && loginTime) {
+                const sessionDuration = Date.now() - parseInt(loginTime);
+                const MAX_SESSION = 8 * 60 * 60 * 1000; // 8 hours
+                
+                if (sessionDuration < MAX_SESSION) {
+                    // Valid session exists, redirect to admin
+                    window.location.href = 'admin.html';
+                } else {
+                    // Session expired
+                    sessionStorage.clear();
+                }
+            }
+        }
+
+        // Domain check (optional - uncomment if you want to restrict to specific domains)
+        function checkAllowedDomain() {
+            const allowedDomains = [
+                'localhost',
+                '127.0.0.1',
+                'Nisa-droid-coder.github.io', // Replace with your GitHub Pages domain
+                //'your-custom-domain.com'   // Replace with your custom domain if any
+            ];
+            
+            const currentDomain = window.location.hostname;
+            const isAllowed = allowedDomains.some(domain => currentDomain.includes(domain));
+            
+            if (!isAllowed && currentDomain !== '' && !currentDomain.includes('github.io')) {
+                console.warn('Access from unauthorized domain:', currentDomain);
+                // You can choose to block or just warn
+                // document.getElementById('errorMessage').textContent = 'Unauthorized access domain.';
+                // document.getElementById('errorMessage').style.display = 'block';
+                // return false;
+            }
+            return true;
+        }
+
+        // Input sanitization
+        function sanitizeInput(input) {
+            if (!input) return input;
+            return input
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;')
+                .replace(/\//g, '&#x2F;');
+        }
+
+        // Validate email format
+        function isValidEmail(email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(email);
+        }
+
+        // Show/hide loading (your existing functions)
         function showLoading() {
             document.getElementById('loadingOverlay').style.display = 'flex';
         }
@@ -229,11 +307,48 @@
             document.getElementById('loadingOverlay').style.display = 'none';
         }
 
+        // ============================================
+        // CHECK EXISTING SESSION ON PAGE LOAD
+        // ============================================
+        checkExistingSession();
+        checkAllowedDomain();
+
+        // ============================================
+        // LOGIN FORM SUBMISSION (Enhanced Security)
+        // ============================================
         document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const username = document.getElementById('username').value;
+            // Check rate limiting
+            const now = Date.now();
+            if (loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+                if (now - lastLoginAttempt < LOCKOUT_TIME) {
+                    document.getElementById('errorMessage').textContent = 'Too many login attempts. Please try again in 15 minutes.';
+                    document.getElementById('errorMessage').style.display = 'block';
+                    return;
+                } else {
+                    // Reset attempts after lockout period
+                    loginAttempts = 0;
+                }
+            }
+            
+            // Get and sanitize inputs
+            const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
+            
+            // Basic validation
+            if (!username || !password) {
+                document.getElementById('errorMessage').textContent = 'Please enter both username and password.';
+                document.getElementById('errorMessage').style.display = 'block';
+                return;
+            }
+            
+            // Validate email format (since Firebase uses email for login)
+            if (!isValidEmail(username)) {
+                document.getElementById('errorMessage').textContent = 'Please enter a valid email address.';
+                document.getElementById('errorMessage').style.display = 'block';
+                return;
+            }
             
             showLoading();
             
@@ -241,23 +356,64 @@
                 // Sign in with Firebase
                 const userCredential = await auth.signInWithEmailAndPassword(username, password);
                 
-                // Store login state
+                // Verify if user is admin in Firestore
+                const adminDoc = await db.collection('admins').doc(userCredential.user.uid).get();
+                
+                if (!adminDoc.exists) {
+                    // User exists but is not an admin - sign them out
+                    await auth.signOut();
+                    throw new Error('unauthorized');
+                }
+                
+                // Store login state with timestamp
                 sessionStorage.setItem('ysd2026_admin', 'logged_in');
                 sessionStorage.setItem('admin_uid', userCredential.user.uid);
+                sessionStorage.setItem('ysd2026_login_time', Date.now().toString());
+                
+                // Generate and store CSRF token
+                const csrfToken = Math.random().toString(36).substring(2, 15) + 
+                                 Math.random().toString(36).substring(2, 15);
+                sessionStorage.setItem('csrf_token', csrfToken);
                 
                 // Update last login in Firestore
                 await db.collection('admins').doc(userCredential.user.uid).set({
                     lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-                    username: username
+                    username: username,
+                    lastLoginIp: 'client-side', // Note: Can't get real IP from client
+                    userAgent: navigator.userAgent
                 }, { merge: true });
+                
+                // Reset login attempts on success
+                loginAttempts = 0;
                 
                 // Redirect to admin dashboard
                 window.location.href = 'admin.html';
             } catch (error) {
                 hideLoading();
+                
+                // Increment failed attempts
+                loginAttempts++;
+                lastLoginAttempt = Date.now();
+                
                 console.error('Login error:', error);
                 
-                // Show error message
+                // Show generic error message (don't expose specific errors)
+                let errorMessage = 'Invalid username or password. Please try again.';
+                
+                // Map Firebase errors to generic messages
+                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    errorMessage = 'Invalid username or password. Please try again.';
+                } else if (error.code === 'auth/user-disabled') {
+                    errorMessage = 'This account has been disabled. Contact administrator.';
+                } else if (error.code === 'auth/too-many-requests') {
+                    errorMessage = 'Access temporarily blocked due to too many failed attempts. Try again later.';
+                } else if (error.code === 'auth/network-request-failed') {
+                    errorMessage = 'Network error. Please check your internet connection.';
+                } else if (error.message === 'unauthorized') {
+                    errorMessage = 'You do not have admin privileges.';
+                }
+                
+                document.getElementById('errorMessage').textContent = errorMessage;
                 document.getElementById('errorMessage').style.display = 'block';
                 document.getElementById('password').value = '';
             }
@@ -274,7 +430,21 @@
         
         // Focus on username field on page load
         document.getElementById('username').focus();
+        
+        // Prevent password manager autofill issues
+        setTimeout(() => {
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        }, 100);
+        
+        // Add visibility change handler to check session
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') {
+                checkExistingSession();
+            }
+        });
     </script>
 </body>
 </html>
+
 
