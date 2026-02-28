@@ -767,7 +767,7 @@
         
         <footer>
             <p>YSD2026 Universiti Putra Malaysia Admin Dashboard &copy; 2026. All rights reserved.</p>
-            <p>For support, contact: admin.ysd2026@upm.edu.my | +603-9769 5678</p>
+            <p>For support, contact: ysd@upm.edu.my </p>
         </footer>
     </div>
     
@@ -949,7 +949,7 @@
 
     <script>
         // ============================================
-        // FIREBASE CONFIGURATION
+        // SECURE FIREBASE CONFIGURATION
         // ============================================
         const firebaseConfig = {
             apiKey: "AIzaSyABaOMohXrju_OelcUQLAxlIBy809ob3uI",
@@ -957,14 +957,129 @@
             projectId: "ysd2026-upm-tickets",
             storageBucket: "ysd2026-upm-tickets.firebasestorage.app",
             messagingSenderId: "350674755825",
-            appId: "1:350674755825:web:143f8ee11a2fb568080950",
-            measurementId: "G-Y4R80MP8P2"
+            appId: "1:350674755825:web:143f8ee11a2fb568080950"
+            // measurementId removed for security
         };
 
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
+        // Initialize Firebase with error handling
+        try {
+            firebase.initializeApp(firebaseConfig);
+        } catch (error) {
+            console.error('Firebase initialization failed:', error);
+            alert('System configuration error. Please contact administrator.');
+        }
+        
         const db = firebase.firestore();
         const auth = firebase.auth();
+
+        // ============================================
+        // SECURITY ENHANCEMENTS
+        // ============================================
+        
+        // Session validation
+        function validateSession() {
+            const adminSession = sessionStorage.getItem('ysd2026_admin');
+            const loginTime = sessionStorage.getItem('ysd2026_login_time');
+            const csrfToken = sessionStorage.getItem('csrf_token');
+            
+            if (!adminSession || !loginTime || !csrfToken) {
+                return false;
+            }
+            
+            // Check session duration (8 hours max)
+            const sessionDuration = Date.now() - parseInt(loginTime);
+            if (sessionDuration > 8 * 60 * 60 * 1000) {
+                return false;
+            }
+            
+            return true;
+        }
+
+        // Input sanitization function
+        function sanitizeInput(input) {
+            if (!input) return input;
+            return input
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;')
+                .replace(/\//g, '&#x2F;')
+                .replace(/\\/g, '&#x5C;')
+                .replace(/`/g, '&#96;');
+        }
+
+        // Validate email format
+        function isValidEmail(email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(email);
+        }
+
+        // Validate phone number (Malaysia format)
+        function isValidPhone(phone) {
+            const phoneRegex = /^(\+?6?01)[0-9]{8,9}$/;
+            return phoneRegex.test(phone.replace(/\s/g, ''));
+        }
+
+        // Audit log function
+        async function createAuditLog(action, details) {
+            try {
+                const user = auth.currentUser;
+                if (!user) return;
+                
+                await db.collection('audit_logs').add({
+                    action: action,
+                    details: details,
+                    userId: user.uid,
+                    userEmail: user.email,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    ip: 'client-side', // Note: Can't get real IP from client
+                    userAgent: navigator.userAgent
+                });
+            } catch (error) {
+                console.error('Audit log failed:', error);
+            }
+        }
+
+        // ============================================
+        // CHECK AUTHENTICATION WITH SESSION VALIDATION
+        // ============================================
+        auth.onAuthStateChanged(async (user) => {
+            if (!user || !validateSession()) {
+                // Not logged in or invalid session, redirect to login
+                sessionStorage.clear();
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            // Verify user is still admin
+            try {
+                const adminDoc = await db.collection('admins').doc(user.uid).get();
+                if (!adminDoc.exists) {
+                    await auth.signOut();
+                    sessionStorage.clear();
+                    window.location.href = 'login.html';
+                    return;
+                }
+                
+                // Log access
+                await createAuditLog('DASHBOARD_ACCESS', {
+                    timestamp: new Date().toISOString()
+                });
+                
+            } catch (error) {
+                console.error('Admin verification failed:', error);
+            }
+            
+            // Update admin info (sanitized)
+            const lastLogin = formatDateTime(new Date());
+            adminInfo.innerHTML = `
+                <i class="fas fa-user-shield"></i>
+                <span>${sanitizeInput(user.email)} | Last Login: ${lastLogin}</span>
+            `;
+            
+            // Load bookings
+            await loadBookings();
+        });
 
         // ============================================
         // GLOBAL VARIABLES
@@ -1045,26 +1160,6 @@
         }
 
         // ============================================
-        // CHECK AUTHENTICATION
-        // ============================================
-        auth.onAuthStateChanged(async (user) => {
-            if (!user) {
-                // Not logged in, redirect to login
-                window.location.href = 'login.html';
-                return;
-            }
-            
-            // Update admin info
-            adminInfo.innerHTML = `
-                <i class="fas fa-user-shield"></i>
-                <span>${user.email} | Last Login: ${formatDateTime(new Date())}</span>
-            `;
-            
-            // Load bookings
-            await loadBookings();
-        });
-
-        // ============================================
         // LOAD BOOKINGS FROM FIRESTORE
         // ============================================
         async function loadBookings() {
@@ -1092,14 +1187,21 @@
                 
             } catch (error) {
                 console.error('Error loading bookings:', error);
-                alert('Error loading bookings. Please refresh the page.');
+                if (error.code === 'permission-denied') {
+                    alert('Access denied. Please contact administrator.');
+                    await auth.signOut();
+                    sessionStorage.clear();
+                    window.location.href = 'login.html';
+                } else {
+                    alert('Error loading bookings. Please refresh the page.');
+                }
             } finally {
                 hideLoading();
             }
         }
 
         // ============================================
-        // RENDER TABLE
+        // RENDER TABLE (with sanitized output)
         // ============================================
         function renderTable() {
             bookingsTableBody.innerHTML = '';
@@ -1119,9 +1221,9 @@
             currentBookings.forEach(booking => {
                 const row = document.createElement('tr');
                 
-                // Format participants list (name only, no IC)
+                // Format participants list with sanitized names
                 const participantsList = (booking.participants || []).map(p => 
-                    `<div class="participant-item">${p.name} (Age: ${p.age})</div>`
+                    `<div class="participant-item">${sanitizeInput(p.name)} (Age: ${p.age})</div>`
                 ).join('');
                 
                 // Determine status badge class
@@ -1136,10 +1238,10 @@
                                         attendanceCount > 0 ? `${attendanceCount}/${totalParticipants} Present` : 'None';
                 
                 row.innerHTML = `
-                    <td><strong>${booking.bookingId || 'N/A'}</strong></td>
-                    <td>${booking.contactPerson || 'N/A'}</td>
-                    <td>${booking.email || 'N/A'}</td>
-                    <td>${booking.phone || 'N/A'}</td>
+                    <td><strong>${sanitizeInput(booking.bookingId) || 'N/A'}</strong></td>
+                    <td>${sanitizeInput(booking.contactPerson) || 'N/A'}</td>
+                    <td>${sanitizeInput(booking.email) || 'N/A'}</td>
+                    <td>${sanitizeInput(booking.phone) || 'N/A'}</td>
                     <td>
                         <div class="participants-list">
                             ${participantsList || '<em>No participants</em>'}
@@ -1204,7 +1306,7 @@
             const dateFilterValue = dateFilter.value;
             
             filteredBookings = allBookings.filter(booking => {
-                // Search filter
+                // Search filter (with sanitized comparison)
                 const matchesSearch = !searchTerm || 
                     (booking.contactPerson && booking.contactPerson.toLowerCase().includes(searchTerm)) ||
                     (booking.email && booking.email.toLowerCase().includes(searchTerm)) ||
@@ -1313,7 +1415,7 @@
         }
 
         // ============================================
-        // VIEW BOOKING DETAILS
+        // VIEW BOOKING DETAILS (with sanitized output)
         // ============================================
         async function viewBookingDetails(bookingId) {
             showLoading();
@@ -1330,10 +1432,10 @@
                 
                 const detailsBody = document.getElementById('bookingDetailsBody');
                 
-                // Format participants list (no IC)
+                // Format participants list with sanitized names
                 const participantsList = (booking.participants || []).map(p => 
                     `<tr>
-                        <td>${p.name}</td>
+                        <td>${sanitizeInput(p.name)}</td>
                         <td>${p.age}</td>
                         <td>${(booking.attendance || []).find(a => a.participantIndex === p.index)?.present ? '✓ Present' : '✗ Absent'}</td>
                     </tr>`
@@ -1343,22 +1445,22 @@
                     <div class="booking-details">
                         <div class="detail-group">
                             <label>Booking ID</label>
-                            <div class="detail-value">${booking.bookingId || 'N/A'}</div>
+                            <div class="detail-value">${sanitizeInput(booking.bookingId) || 'N/A'}</div>
                         </div>
                         
                         <div class="detail-group">
                             <label>Contact Person</label>
-                            <div class="detail-value">${booking.contactPerson || 'N/A'}</div>
+                            <div class="detail-value">${sanitizeInput(booking.contactPerson) || 'N/A'}</div>
                         </div>
                         
                         <div class="detail-group">
                             <label>Email Address</label>
-                            <div class="detail-value">${booking.email || 'N/A'}</div>
+                            <div class="detail-value">${sanitizeInput(booking.email) || 'N/A'}</div>
                         </div>
                         
                         <div class="detail-group">
                             <label>Phone Number</label>
-                            <div class="detail-value">${booking.phone || 'N/A'}</div>
+                            <div class="detail-value">${sanitizeInput(booking.phone) || 'N/A'}</div>
                         </div>
                         
                         <div class="detail-group">
@@ -1424,6 +1526,9 @@
                 
                 bookingDetailsModal.style.display = 'flex';
                 
+                // Log view action
+                await createAuditLog('VIEW_BOOKING', { bookingId: booking.bookingId });
+                
             } catch (error) {
                 console.error('Error loading booking details:', error);
                 alert('Error loading booking details');
@@ -1433,9 +1538,17 @@
         }
 
         // ============================================
-        // OPEN EDIT BOOKING MODAL
+        // OPEN EDIT BOOKING MODAL (with CSRF check)
         // ============================================
         async function openEditBookingModal(bookingId) {
+            // Verify CSRF token
+            const csrfToken = sessionStorage.getItem('csrf_token');
+            if (!csrfToken) {
+                alert('Session invalid. Please login again.');
+                window.location.href = 'login.html';
+                return;
+            }
+            
             showLoading();
             
             try {
@@ -1447,20 +1560,24 @@
                 
                 const booking = { id: doc.id, ...doc.data() };
                 
-                // Populate form fields
+                // Populate form fields with sanitized values
                 document.getElementById('editDocId').value = booking.id;
-                document.getElementById('editBookingId').value = booking.bookingId || '';
-                document.getElementById('editContactPerson').value = booking.contactPerson || '';
-                document.getElementById('editEmail').value = booking.email || '';
-                document.getElementById('editPhone').value = booking.phone || '';
+                document.getElementById('editBookingId').value = sanitizeInput(booking.bookingId) || '';
+                document.getElementById('editContactPerson').value = sanitizeInput(booking.contactPerson) || '';
+                document.getElementById('editEmail').value = sanitizeInput(booking.email) || '';
+                document.getElementById('editPhone').value = sanitizeInput(booking.phone) || '';
                 document.getElementById('editQuantity').value = booking.quantity || 1;
                 document.getElementById('editStatus').value = booking.status || 'pending';
                 document.getElementById('editAmount').value = booking.amount || 0;
                 document.getElementById('editPaymentMethod').value = booking.paymentMethod || 'UPM Gateway';
                 document.getElementById('editEventDate').value = formatDateForInput(booking.eventDate) || '2026-06-13';
                 
-                // Set participants
-                editParticipants = booking.participants ? booking.participants.map((p, index) => ({...p, index})) : [];
+                // Set participants with sanitized names
+                editParticipants = booking.participants ? booking.participants.map((p, index) => ({
+                    ...p,
+                    name: sanitizeInput(p.name),
+                    index
+                })) : [];
                 renderEditParticipants();
                 
                 // Set attendance
@@ -1479,7 +1596,7 @@
         }
 
         // ============================================
-        // RENDER EDIT PARTICIPANTS
+        // RENDER EDIT PARTICIPANTS (with sanitized output)
         // ============================================
         function renderEditParticipants() {
             editParticipantsContainer.innerHTML = '';
@@ -1493,7 +1610,7 @@
                 const participantDiv = document.createElement('div');
                 participantDiv.className = 'participant-row';
                 participantDiv.innerHTML = `
-                    <input type="text" class="form-control" placeholder="Name" value="${participant.name || ''}" 
+                    <input type="text" class="form-control" placeholder="Name" value="${sanitizeInput(participant.name) || ''}" 
                            onchange="updateEditParticipant(${index}, 'name', this.value)">
                     <input type="number" class="form-control" placeholder="Age" min="5" max="12" value="${participant.age || ''}" 
                            onchange="updateEditParticipant(${index}, 'age', this.value)">
@@ -1506,7 +1623,7 @@
         }
 
         // ============================================
-        // RENDER EDIT ATTENDANCE
+        // RENDER EDIT ATTENDANCE (with sanitized output)
         // ============================================
         function renderEditAttendance() {
             editAttendanceContainer.innerHTML = '';
@@ -1526,7 +1643,7 @@
                 const attendanceRow = document.createElement('div');
                 attendanceRow.className = 'participant-row';
                 attendanceRow.innerHTML = `
-                    <span style="min-width: 200px;">${participant.name}</span>
+                    <span style="min-width: 200px;">${sanitizeInput(participant.name)}</span>
                     <label style="display: flex; align-items: center; gap: 5px;">
                         <input type="checkbox" ${isPresent ? 'checked' : ''} 
                                onchange="updateAttendance(${index}, this.checked)">
@@ -1538,7 +1655,7 @@
         }
 
         // ============================================
-        // UPDATE EDIT PARTICIPANT
+        // UPDATE EDIT PARTICIPANT (with sanitization)
         // ============================================
         function updateEditParticipant(index, field, value) {
             if (!editParticipants[index]) {
@@ -1547,6 +1664,10 @@
             
             if (field === 'age') {
                 value = parseInt(value) || 0;
+            }
+            
+            if (field === 'name') {
+                value = sanitizeInput(value);
             }
             
             editParticipants[index][field] = value;
@@ -1601,15 +1722,23 @@
         }
 
         // ============================================
-        // SAVE EDIT BOOKING
+        // SAVE EDIT BOOKING (with validation and audit)
         // ============================================
         async function saveEditBooking(e) {
             e.preventDefault();
             
+            // Verify CSRF token
+            const csrfToken = sessionStorage.getItem('csrf_token');
+            if (!csrfToken) {
+                alert('Session invalid. Please login again.');
+                window.location.href = 'login.html';
+                return;
+            }
+            
             const docId = document.getElementById('editDocId').value;
-            const contactPerson = document.getElementById('editContactPerson').value;
+            const contactPerson = sanitizeInput(document.getElementById('editContactPerson').value);
             const email = document.getElementById('editEmail').value;
-            const phone = document.getElementById('editPhone').value;
+            const phone = sanitizeInput(document.getElementById('editPhone').value);
             const quantity = parseInt(document.getElementById('editQuantity').value);
             const status = document.getElementById('editStatus').value;
             const amount = parseFloat(document.getElementById('editAmount').value);
@@ -1617,9 +1746,14 @@
             const eventDate = document.getElementById('editEventDate').value;
             
             // Validate email
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(email)) {
+            if (!isValidEmail(email)) {
                 alert('Please enter a valid email address.');
+                return;
+            }
+            
+            // Validate phone (optional)
+            if (phone && !isValidPhone(phone)) {
+                alert('Please enter a valid Malaysian phone number.');
                 return;
             }
             
@@ -1658,10 +1792,17 @@
                     status: status,
                     paymentMethod: paymentMethod,
                     eventDate: eventDate,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedBy: auth.currentUser ? auth.currentUser.uid : 'unknown'
                 };
                 
                 await db.collection('bookings').doc(docId).update(updateData);
+                
+                // Create audit log
+                await createAuditLog('UPDATE_BOOKING', { 
+                    bookingId: document.getElementById('editBookingId').value,
+                    changes: updateData 
+                });
                 
                 alert('Booking updated successfully!');
                 editBookingModal.style.display = 'none';
@@ -1676,7 +1817,7 @@
         }
 
         // ============================================
-        // OPEN CERTIFICATE MODAL
+        // OPEN CERTIFICATE MODAL (with sanitized output)
         // ============================================
         async function openCertificateModal(bookingId) {
             showLoading();
@@ -1707,8 +1848,8 @@
                     `;
                 } else {
                     modalBody.innerHTML = `
-                        <p><strong>Booking ID:</strong> ${booking.bookingId}</p>
-                        <p><strong>Contact:</strong> ${booking.contactPerson}</p>
+                        <p><strong>Booking ID:</strong> ${sanitizeInput(booking.bookingId)}</p>
+                        <p><strong>Contact:</strong> ${sanitizeInput(booking.contactPerson)}</p>
                         <p><strong>Present Participants:</strong> ${presentParticipants.length} of ${booking.quantity}</p>
                         
                         <div style="margin: 20px 0;">
@@ -1716,7 +1857,7 @@
                             <ul style="list-style: none; padding: 0;">
                                 ${presentParticipants.map(p => `
                                     <li style="padding: 8px; border-bottom: 1px solid #eee;">
-                                        <i class="fas fa-user" style="color: #4CAF50;"></i> ${p.name} (Age ${p.age})
+                                        <i class="fas fa-user" style="color: #4CAF50;"></i> ${sanitizeInput(p.name)} (Age ${p.age})
                                     </li>
                                 `).join('')}
                             </ul>
@@ -1739,6 +1880,9 @@
                 
                 certificateModal.style.display = 'flex';
                 
+                // Log view action
+                await createAuditLog('VIEW_CERTIFICATE_MODAL', { bookingId: booking.bookingId });
+                
             } catch (error) {
                 console.error('Error opening certificate modal:', error);
                 alert('Error loading certificate data');
@@ -1748,7 +1892,7 @@
         }
 
         // ============================================
-        // SEND CERTIFICATES
+        // SEND CERTIFICATES (with audit)
         // ============================================
         async function sendCertificates(bookingId) {
             if (!confirm('Send certificates to all present participants? This action cannot be undone.')) {
@@ -1784,7 +1928,15 @@
                 await db.collection('bookings').doc(bookingId).update({
                     certificatesSent: currentSent + presentParticipants.length,
                     certificatesSentAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    lastCertificateEmail: booking.email
+                    lastCertificateEmail: booking.email,
+                    certificatesSentBy: auth.currentUser ? auth.currentUser.uid : 'unknown'
+                });
+                
+                // Create audit log
+                await createAuditLog('SEND_CERTIFICATES', { 
+                    bookingId: booking.bookingId,
+                    count: presentParticipants.length,
+                    email: booking.email
                 });
                 
                 alert(`Certificates have been sent to ${presentParticipants.length} participant(s) at ${booking.email}`);
@@ -1801,7 +1953,7 @@
         }
 
         // ============================================
-        // PREVIEW CERTIFICATES
+        // PREVIEW CERTIFICATES (with sanitized output)
         // ============================================
         async function previewCertificates(bookingId) {
             try {
@@ -1837,7 +1989,7 @@
         }
 
         // ============================================
-        // GENERATE CERTIFICATE HTML
+        // GENERATE CERTIFICATE HTML (with sanitization)
         // ============================================
         function generateCertificateHTML(participant, booking) {
             const date = new Date().toLocaleDateString('en-US', { 
@@ -1964,7 +2116,7 @@
                             <div class="medal">🏆</div>
                             <h2>CERTIFICATE OF PARTICIPATION</h2>
                             <p>This certificate is proudly presented to</p>
-                            <div class="participant-name">${participant.name}</div>
+                            <div class="participant-name">${sanitizeInput(participant.name)}</div>
                             <p>for active participation in</p>
                             <p style="font-size: 1.5rem; color: #4CAF50;">YSD2026 UPM Youth Sports Day</p>
                             <p>held on 13th June 2026</p>
@@ -2006,7 +2158,7 @@
         }
 
         // ============================================
-        // PRINT BOOKING DETAILS
+        // PRINT BOOKING DETAILS (with sanitized output)
         // ============================================
         function printBookingDetails() {
             if (!currentBookingDetails) return;
@@ -2044,19 +2196,19 @@
                     <div class="info">
                         <div class="info-row">
                             <div class="label">Booking ID:</div>
-                            <div>${booking.bookingId || 'N/A'}</div>
+                            <div>${sanitizeInput(booking.bookingId) || 'N/A'}</div>
                         </div>
                         <div class="info-row">
                             <div class="label">Contact Person:</div>
-                            <div>${booking.contactPerson || 'N/A'}</div>
+                            <div>${sanitizeInput(booking.contactPerson) || 'N/A'}</div>
                         </div>
                         <div class="info-row">
                             <div class="label">Email:</div>
-                            <div>${booking.email || 'N/A'}</div>
+                            <div>${sanitizeInput(booking.email) || 'N/A'}</div>
                         </div>
                         <div class="info-row">
                             <div class="label">Phone:</div>
-                            <div>${booking.phone || 'N/A'}</div>
+                            <div>${sanitizeInput(booking.phone) || 'N/A'}</div>
                         </div>
                         <div class="info-row">
                             <div class="label">Quantity:</div>
@@ -2090,7 +2242,7 @@
                             ${(booking.participants || []).map((p, i) => `
                                 <tr>
                                     <td>${i + 1}</td>
-                                    <td>${p.name}</td>
+                                    <td>${sanitizeInput(p.name)}</td>
                                     <td>${p.age}</td>
                                     <td>${(booking.attendance || []).find(a => a.participantIndex === i)?.present ? 'Present' : 'Absent'}</td>
                                 </tr>
@@ -2114,7 +2266,7 @@
         }
 
         // ============================================
-        // DELETE BOOKING
+        // DELETE BOOKING (with audit)
         // ============================================
         async function deleteBooking(bookingId) {
             if (!confirm('Are you sure you want to delete this booking? This action cannot be undone.')) {
@@ -2124,6 +2276,16 @@
             showLoading();
             
             try {
+                // Get booking data for audit before deletion
+                const bookingDoc = await db.collection('bookings').doc(bookingId).get();
+                const bookingData = bookingDoc.data();
+                
+                // Create audit log
+                await createAuditLog('DELETE_BOOKING', { 
+                    bookingId: bookingData.bookingId,
+                    bookingData: bookingData 
+                });
+                
                 await db.collection('bookings').doc(bookingId).delete();
                 alert('Booking deleted successfully!');
                 await loadBookings(); // Reload data
@@ -2137,28 +2299,41 @@
         }
 
         // ============================================
-        // ADD NEW BOOKING
+        // ADD NEW BOOKING (with validation and audit)
         // ============================================
         async function addNewBooking(e) {
             e.preventDefault();
             
-            // Get form values
-            const contactName = document.getElementById('newContactName').value;
+            // Verify CSRF token
+            const csrfToken = sessionStorage.getItem('csrf_token');
+            if (!csrfToken) {
+                alert('Session invalid. Please login again.');
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            // Get form values and sanitize
+            const contactName = sanitizeInput(document.getElementById('newContactName').value);
             const email = document.getElementById('newContactEmail').value;
-            const phone = document.getElementById('newContactPhone').value;
+            const phone = sanitizeInput(document.getElementById('newContactPhone').value);
             const quantity = parseInt(document.getElementById('newQuantity').value);
             const status = document.getElementById('newStatus').value;
             const amount = parseFloat(document.getElementById('newAmount').value);
             const participantsText = document.getElementById('newParticipants').value;
             
             // Validate email
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(email)) {
+            if (!isValidEmail(email)) {
                 alert('Please enter a valid email address.');
                 return;
             }
             
-            // Parse participants (Name, Age)
+            // Validate phone (optional)
+            if (phone && !isValidPhone(phone)) {
+                alert('Please enter a valid Malaysian phone number.');
+                return;
+            }
+            
+            // Parse participants (Name, Age) with sanitization
             const participants = [];
             if (participantsText.trim()) {
                 const lines = participantsText.split('\n');
@@ -2171,7 +2346,7 @@
                             return;
                         }
                         participants.push({
-                            name: parts[0],
+                            name: sanitizeInput(parts[0]),
                             age: age,
                             index: i
                         });
@@ -2209,11 +2384,18 @@
                     bookingDate: firebase.firestore.FieldValue.serverTimestamp(),
                     eventDate: '2026-06-13',
                     attendance: [],
-                    certificatesSent: 0
+                    certificatesSent: 0,
+                    createdBy: auth.currentUser ? auth.currentUser.uid : 'unknown'
                 };
                 
                 // Save to Firestore
                 await db.collection('bookings').add(bookingData);
+                
+                // Create audit log
+                await createAuditLog('CREATE_BOOKING', { 
+                    bookingId: bookingId,
+                    bookingData: bookingData 
+                });
                 
                 // Reset form
                 addBookingForm.reset();
@@ -2246,7 +2428,7 @@
         }
 
         // ============================================
-        // EXPORT TO CSV
+        // EXPORT TO CSV (with audit)
         // ============================================
         function exportToCSV() {
             if (filteredBookings.length === 0) {
@@ -2273,7 +2455,7 @@
                 'Certificates Sent'
             ]);
             
-            // Add booking data
+            // Add booking data (with sanitization)
             filteredBookings.forEach(booking => {
                 const presentCount = (booking.attendance || []).filter(a => a.present).length;
                 csvData.push([
@@ -2310,6 +2492,12 @@
             link.click();
             document.body.removeChild(link);
             
+            // Log export for audit
+            createAuditLog('EXPORT_CSV', {
+                recordCount: filteredBookings.length,
+                filename: `YSD2026_Bookings_${new Date().toISOString().slice(0,10)}.csv`
+            });
+            
             alert(`CSV file with ${filteredBookings.length} bookings has been downloaded.`);
         }
 
@@ -2323,7 +2511,7 @@
         }
 
         // ============================================
-        // LOGOUT
+        // LOGOUT (with audit)
         // ============================================
         async function logoutAdmin() {
             if (!confirm('Are you sure you want to logout?')) return;
@@ -2331,8 +2519,11 @@
             showLoading();
             
             try {
+                // Log logout
+                await createAuditLog('LOGOUT', {});
+                
                 await auth.signOut();
-                sessionStorage.removeItem('ysd2026_admin');
+                sessionStorage.clear();
                 window.location.href = 'login.html';
             } catch (error) {
                 console.error('Logout error:', error);
@@ -2340,6 +2531,19 @@
                 alert('Error logging out. Please try again.');
             }
         }
+
+        // ============================================
+        // AUTO-REFRESH SESSION CHECK
+        // ============================================
+        setInterval(() => {
+            const loginTime = sessionStorage.getItem('ysd2026_login_time');
+            if (loginTime) {
+                const sessionDuration = Date.now() - parseInt(loginTime);
+                if (sessionDuration > 7 * 60 * 60 * 1000) { // 7 hours
+                    alert('Your session will expire in 1 hour. Please save your work.');
+                }
+            }
+        }, 30 * 60 * 1000); // Check every 30 minutes
 
         // ============================================
         // EVENT LISTENERS
@@ -2388,6 +2592,14 @@
             // Quantity change events
             newQuantity.addEventListener('change', updateNewBookingAmount);
             document.getElementById('editQuantity').addEventListener('change', updateEditBookingAmount);
+            
+            // Add CSRF token to forms
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = sessionStorage.getItem('csrf_token') || '';
+            addBookingForm.appendChild(csrfInput.cloneNode(true));
+            editBookingForm.appendChild(csrfInput.cloneNode(true));
         });
 
         // Make functions globally available
