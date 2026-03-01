@@ -181,8 +181,8 @@
         <div class="login-form">
             <form id="loginForm">
                 <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" class="form-control" placeholder="Enter username" required autocomplete="off">
+                    <label for="username">Email Address</label>
+                    <input type="email" id="username" class="form-control" placeholder="Enter email address" required autocomplete="off">
                 </div>
                 
                 <div class="form-group">
@@ -194,7 +194,6 @@
                     <i class="fas fa-sign-in-alt"></i> Login
                 </button>
             </form>
-            
         </div>
         
         <div class="login-footer">
@@ -209,13 +208,12 @@
         // ============================================
         // Firebase configuration - using your existing config
         const firebaseConfig = {
-            apiKey: "AIzaSyABaOMohXrju_OelcUQLAxlIBy809ob3uI",
-            authDomain: "ysd2026-upm-tickets-37b0d.firebaseapp.com",
-            projectId: "ysd2026-upm-tickets-37b0d",
-            storageBucket: "ysd2026-upm-tickets-37b0d.firebasestorage.app",
-            messagingSenderId: "1063195509884",
-            appId: "1:1063195509884:web:1d9dc8c6723c2382acb5f9"
-            // measurementId removed for security
+            apiKey: "AIzaSyCzGLXIWHYX7LMGO821aJP50XkyZ4wqkfg",
+            authDomain: "ysd2026-upm.firebaseapp.com",
+            projectId: "ysd2026-upm",
+            storageBucket: "ysd2026-upm.firebasestorage.app",
+            messagingSenderId: "1027499510395",
+            appId: "1:1027499510395:web:37a83006a7e81d9bff70de"
         };
 
         // Initialize Firebase with error handling
@@ -259,24 +257,21 @@
             }
         }
 
-        // Domain check (optional - uncomment if you want to restrict to specific domains)
+        // Domain check 
         function checkAllowedDomain() {
             const allowedDomains = [
                 'localhost',
                 '127.0.0.1',
-                'nisa-droid-coder.github.io', // Replace with your GitHub Pages domain
-                //'your-custom-domain.com'   // Replace with your custom domain if any
+                'nisa-droid-coder.github.io',
+                'ysd2026-upm.web.app',
+                'ysd2026-upm.firebaseapp.com'
             ];
             
             const currentDomain = window.location.hostname;
             const isAllowed = allowedDomains.some(domain => currentDomain.includes(domain));
             
-            if (!isAllowed && currentDomain !== '' && !currentDomain.includes('github.io')) {
+            if (!isAllowed && currentDomain !== '' && !currentDomain.includes('github.io') && !currentDomain.includes('web.app')) {
                 console.warn('Access from unauthorized domain:', currentDomain);
-                // You can choose to block or just warn
-                // document.getElementById('errorMessage').textContent = 'Unauthorized access domain.';
-                // document.getElementById('errorMessage').style.display = 'block';
-                // return false;
             }
             return true;
         }
@@ -298,7 +293,7 @@
             return emailRegex.test(email);
         }
 
-        // Show/hide loading (your existing functions)
+        // Show/hide loading 
         function showLoading() {
             document.getElementById('loadingOverlay').style.display = 'flex';
         }
@@ -314,7 +309,7 @@
         checkAllowedDomain();
 
         // ============================================
-        // LOGIN FORM SUBMISSION (Enhanced Security)
+        // LOGIN FORM SUBMISSION 
         // ============================================
         document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -333,18 +328,18 @@
             }
             
             // Get and sanitize inputs
-            const username = document.getElementById('username').value.trim();
+            const email = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
             
             // Basic validation
-            if (!username || !password) {
-                document.getElementById('errorMessage').textContent = 'Please enter both username and password.';
+            if (!email || !password) {
+                document.getElementById('errorMessage').textContent = 'Please enter both email and password.';
                 document.getElementById('errorMessage').style.display = 'block';
                 return;
             }
             
-            // Validate email format (since Firebase uses email for login)
-            if (!isValidEmail(username)) {
+            // Validate email format
+            if (!isValidEmail(email)) {
                 document.getElementById('errorMessage').textContent = 'Please enter a valid email address.';
                 document.getElementById('errorMessage').style.display = 'block';
                 return;
@@ -354,7 +349,7 @@
             
             try {
                 // Sign in with Firebase
-                const userCredential = await auth.signInWithEmailAndPassword(username, password);
+                const userCredential = await auth.signInWithEmailAndPassword(email, password);
                 
                 // Verify if user is admin in Firestore
                 const adminDoc = await db.collection('admins').doc(userCredential.user.uid).get();
@@ -368,6 +363,7 @@
                 // Store login state with timestamp
                 sessionStorage.setItem('ysd2026_admin', 'logged_in');
                 sessionStorage.setItem('admin_uid', userCredential.user.uid);
+                sessionStorage.setItem('admin_email', email);
                 sessionStorage.setItem('ysd2026_login_time', Date.now().toString());
                 
                 // Generate and store CSRF token
@@ -378,8 +374,8 @@
                 // Update last login in Firestore
                 await db.collection('admins').doc(userCredential.user.uid).set({
                     lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-                    username: username,
-                    lastLoginIp: 'client-side', // Note: Can't get real IP from client
+                    email: email,
+                    role: adminDoc.data().role || 'admin',
                     userAgent: navigator.userAgent
                 }, { merge: true });
                 
@@ -397,18 +393,20 @@
                 
                 console.error('Login error:', error);
                 
-                // Show generic error message (don't expose specific errors)
-                let errorMessage = 'Invalid username or password. Please try again.';
+                // Show generic error message
+                let errorMessage = 'Invalid email or password. Please try again.';
                 
                 // Map Firebase errors to generic messages
                 if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-                    errorMessage = 'Invalid username or password. Please try again.';
+                    errorMessage = 'Invalid email or password. Please try again.';
                 } else if (error.code === 'auth/user-disabled') {
                     errorMessage = 'This account has been disabled. Contact administrator.';
                 } else if (error.code === 'auth/too-many-requests') {
                     errorMessage = 'Access temporarily blocked due to too many failed attempts. Try again later.';
                 } else if (error.code === 'auth/network-request-failed') {
                     errorMessage = 'Network error. Please check your internet connection.';
+                } else if (error.code === 'auth/invalid-email') {
+                    errorMessage = 'Invalid email format. Please enter a valid email.';
                 } else if (error.message === 'unauthorized') {
                     errorMessage = 'You do not have admin privileges.';
                 }
@@ -446,6 +444,7 @@
     </script>
 </body>
 </html>
+
 
 
 
