@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
     <style>
-        /* Your existing styles - keep them exactly as they are */
+        /* Your existing styles - kept exactly as they are */
         * {
             margin: 0;
             padding: 0;
@@ -555,6 +555,65 @@
             margin-top: 15px;
             flex-wrap: wrap;
         }
+
+        /* New styles for certificate preview */
+        .participant-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin: 20px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .participant-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .participant-checkbox:last-child {
+            border-bottom: none;
+        }
+
+        .participant-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .participant-checkbox label {
+            flex: 1;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .participant-checkbox .age-badge {
+            background-color: #4CAF50;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+        }
+
+        .select-all-btn {
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .select-all-btn:hover {
+            background-color: #e0e0e0;
+        }
         
         @media (max-width: 992px) {
             .header-content {
@@ -938,7 +997,7 @@
     <div class="modal" id="certificateModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Generate & Send Certificates</h3>
+                <h3>Generate Certificates</h3>
                 <button class="close-btn" id="closeCertificateModalBtn">&times;</button>
             </div>
             <div class="modal-body" id="certificateModalBody">
@@ -952,13 +1011,12 @@
         // SECURE FIREBASE CONFIGURATION
         // ============================================
         const firebaseConfig = {
-            apiKey: "AIzaSyABaOMohXrju_OelcUQLAxlIBy809ob3uI",
-            authDomain: "ysd2026-upm-tickets-37b0d.firebaseapp.com",
-            projectId: "ysd2026-upm-tickets-37b0d",
-            storageBucket: "ysd2026-upm-tickets-37b0d.firebasestorage.app",
-            messagingSenderId: "1063195509884",
-            appId: "1:1063195509884:web:1d9dc8c6723c2382acb5f9"
-            // measurementId removed for security
+            apiKey: "AIzaSyCzGLXIWHYX7LMGO821aJP50XkyZ4wqkfg",
+            authDomain: "ysd2026-upm.firebaseapp.com",
+            projectId: "ysd2026-upm",
+            storageBucket: "ysd2026-upm.firebasestorage.app",
+            messagingSenderId: "1027499510395",
+            appId: "1:1027499510395:web:37a83006a7e81d9bff70de"
         };
 
         // Initialize Firebase with error handling
@@ -976,13 +1034,14 @@
         // SECURITY ENHANCEMENTS
         // ============================================
         
-        // Session validation
+        // Session validation - check if user is logged in
         function validateSession() {
             const adminSession = sessionStorage.getItem('ysd2026_admin');
             const loginTime = sessionStorage.getItem('ysd2026_login_time');
             const csrfToken = sessionStorage.getItem('csrf_token');
+            const adminEmail = sessionStorage.getItem('admin_email');
             
-            if (!adminSession || !loginTime || !csrfToken) {
+            if (!adminSession || !loginTime || !csrfToken || !adminEmail) {
                 return false;
             }
             
@@ -998,7 +1057,7 @@
         // Input sanitization function
         function sanitizeInput(input) {
             if (!input) return input;
-            return input
+            return String(input)
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
@@ -1016,7 +1075,7 @@
 
         // Validate phone number (Malaysia format)
         function isValidPhone(phone) {
-            const phoneRegex = /^(\+?6?01)[0-9]{8,9}$/;
+            const phoneRegex = /^(\+?6?01)[0-9]{7,8}$/;
             return phoneRegex.test(phone.replace(/\s/g, ''));
         }
 
@@ -1032,7 +1091,6 @@
                     userId: user.uid,
                     userEmail: user.email,
                     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    ip: 'client-side', // Note: Can't get real IP from client
                     userAgent: navigator.userAgent
                 });
             } catch (error) {
@@ -1041,7 +1099,7 @@
         }
 
         // ============================================
-        // CHECK AUTHENTICATION WITH SESSION VALIDATION
+        // CHECK AUTHENTICATION - User should already be logged in from login.html
         // ============================================
         auth.onAuthStateChanged(async (user) => {
             if (!user || !validateSession()) {
@@ -1061,21 +1119,16 @@
                     return;
                 }
                 
-                // Log access
-                await createAuditLog('DASHBOARD_ACCESS', {
-                    timestamp: new Date().toISOString()
-                });
+                // Update admin info (sanitized)
+                const lastLogin = formatDateTime(new Date());
+                adminInfo.innerHTML = `
+                    <i class="fas fa-user-shield"></i>
+                    <span>${sanitizeInput(user.email)} | Last Login: ${lastLogin}</span>
+                `;
                 
             } catch (error) {
                 console.error('Admin verification failed:', error);
             }
-            
-            // Update admin info (sanitized)
-            const lastLogin = formatDateTime(new Date());
-            adminInfo.innerHTML = `
-                <i class="fas fa-user-shield"></i>
-                <span>${sanitizeInput(user.email)} | Last Login: ${lastLogin}</span>
-            `;
             
             // Load bookings
             await loadBookings();
@@ -1141,22 +1194,37 @@
 
         function formatDate(timestamp) {
             if (!timestamp) return 'N/A';
-            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-            const options = { year: 'numeric', month: 'short', day: 'numeric' };
-            return date.toLocaleDateString('en-US', options);
+            try {
+                const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+                if (isNaN(date.getTime())) return 'N/A';
+                const options = { year: 'numeric', month: 'short', day: 'numeric' };
+                return date.toLocaleDateString('en-US', options);
+            } catch (e) {
+                return 'N/A';
+            }
         }
 
         function formatDateTime(timestamp) {
             if (!timestamp) return 'N/A';
-            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-            const options = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-            return date.toLocaleDateString('en-US', options);
+            try {
+                const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+                if (isNaN(date.getTime())) return 'N/A';
+                const options = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+                return date.toLocaleDateString('en-US', options);
+            } catch (e) {
+                return 'N/A';
+            }
         }
 
         function formatDateForInput(date) {
             if (!date) return '';
-            const d = date.toDate ? date.toDate() : new Date(date);
-            return d.toISOString().split('T')[0];
+            try {
+                const d = date.toDate ? date.toDate() : new Date(date);
+                if (isNaN(d.getTime())) return '2026-06-13';
+                return d.toISOString().split('T')[0];
+            } catch (e) {
+                return '2026-06-13';
+            }
         }
 
         // ============================================
@@ -1261,7 +1329,7 @@
                                 <i class="fas fa-edit"></i>
                             </button>
                             <button class="btn btn-small btn-success" onclick="openCertificateModal('${booking.id}')">
-                                <i class="fas fa-award"></i>
+                                <i class="fas fa-award"></i> Certificates
                             </button>
                             <button class="btn btn-small btn-danger" onclick="deleteBooking('${booking.id}')">
                                 <i class="fas fa-trash"></i>
@@ -1330,18 +1398,22 @@
                 // Date filter
                 let matchesDate = true;
                 if (dateFilterValue !== 'all' && booking.bookingDate) {
-                    const bookingDate = booking.bookingDate.toDate ? booking.bookingDate.toDate() : new Date(booking.bookingDate);
-                    const today = new Date();
-                    
-                    if (dateFilterValue === 'today') {
-                        matchesDate = bookingDate.toDateString() === today.toDateString();
-                    } else if (dateFilterValue === 'week') {
-                        const startOfWeek = new Date(today);
-                        startOfWeek.setDate(today.getDate() - today.getDay());
-                        matchesDate = bookingDate >= startOfWeek;
-                    } else if (dateFilterValue === 'month') {
-                        matchesDate = bookingDate.getMonth() === today.getMonth() && 
-                                     bookingDate.getFullYear() === today.getFullYear();
+                    try {
+                        const bookingDate = booking.bookingDate.toDate ? booking.bookingDate.toDate() : new Date(booking.bookingDate);
+                        const today = new Date();
+                        
+                        if (dateFilterValue === 'today') {
+                            matchesDate = bookingDate.toDateString() === today.toDateString();
+                        } else if (dateFilterValue === 'week') {
+                            const startOfWeek = new Date(today);
+                            startOfWeek.setDate(today.getDate() - today.getDay());
+                            matchesDate = bookingDate >= startOfWeek;
+                        } else if (dateFilterValue === 'month') {
+                            matchesDate = bookingDate.getMonth() === today.getMonth() && 
+                                         bookingDate.getFullYear() === today.getFullYear();
+                        }
+                    } catch (e) {
+                        matchesDate = false;
                     }
                 }
                 
@@ -1433,11 +1505,11 @@
                 const detailsBody = document.getElementById('bookingDetailsBody');
                 
                 // Format participants list with sanitized names
-                const participantsList = (booking.participants || []).map(p => 
+                const participantsList = (booking.participants || []).map((p, index) => 
                     `<tr>
                         <td>${sanitizeInput(p.name)}</td>
                         <td>${p.age}</td>
-                        <td>${(booking.attendance || []).find(a => a.participantIndex === p.index)?.present ? '✓ Present' : '✗ Absent'}</td>
+                        <td>${(booking.attendance || []).find(a => a.participantIndex === index)?.present ? '✓ Present' : '✗ Absent'}</td>
                     </tr>`
                 ).join('');
                 
@@ -1484,7 +1556,7 @@
                         
                         <div class="detail-group">
                             <label>Payment Method</label>
-                            <div class="detail-value">UPM Gateway</div>
+                            <div class="detail-value">${booking.paymentMethod || 'UPM Gateway'}</div>
                         </div>
                         
                         <div class="detail-group">
@@ -1602,7 +1674,7 @@
             editParticipantsContainer.innerHTML = '';
             
             if (editParticipants.length === 0) {
-                editParticipantsContainer.innerHTML = '<p class="text-muted">No participants added yet.</p>';
+                editParticipantsContainer.innerHTML = '<p style="color: #666;">No participants added yet.</p>';
                 return;
             }
             
@@ -1629,12 +1701,14 @@
             editAttendanceContainer.innerHTML = '';
             
             if (editParticipants.length === 0) {
-                editAttendanceContainer.innerHTML = '<p class="text-muted">Add participants first to track attendance.</p>';
+                editAttendanceContainer.innerHTML = '<p style="color: #666;">Add participants first to track attendance.</p>';
                 return;
             }
             
             const attendanceTitle = document.createElement('p');
             attendanceTitle.innerHTML = '<strong>Mark attendance for each participant:</strong>';
+            attendanceTitle.style.marginTop = '15px';
+            attendanceTitle.style.marginBottom = '10px';
             editAttendanceContainer.appendChild(attendanceTitle);
             
             editParticipants.forEach((participant, index) => {
@@ -1751,12 +1825,6 @@
                 return;
             }
             
-            // Validate phone (optional)
-            if (phone && !isValidPhone(phone)) {
-                alert('Please enter a valid Malaysian phone number.');
-                return;
-            }
-            
             // Validate participants
             const validParticipants = editParticipants.filter(p => p.name && p.age);
             
@@ -1817,7 +1885,7 @@
         }
 
         // ============================================
-        // OPEN CERTIFICATE MODAL (with sanitized output)
+        // OPEN CERTIFICATE MODAL (with participant selection)
         // ============================================
         async function openCertificateModal(bookingId) {
             showLoading();
@@ -1833,42 +1901,56 @@
                 
                 const modalBody = document.getElementById('certificateModalBody');
                 
-                // Get present participants
-                const presentParticipants = (booking.participants || []).filter((p, index) => 
-                    (booking.attendance || []).some(a => a.participantIndex === index && a.present)
-                );
+                // Get all participants
+                const allParticipants = booking.participants || [];
                 
-                if (presentParticipants.length === 0) {
+                if (allParticipants.length === 0) {
                     modalBody.innerHTML = `
-                        <p>No participants marked as present for this booking.</p>
-                        <p>Please mark attendance in the Edit Booking section first.</p>
+                        <p>No participants found for this booking.</p>
                         <div style="text-align: right; margin-top: 20px;">
                             <button class="btn btn-secondary" onclick="document.getElementById('certificateModal').style.display='none'">Close</button>
                         </div>
                     `;
                 } else {
+                    // Create checkboxes for each participant
+                    let participantsHTML = '';
+                    allParticipants.forEach((participant, index) => {
+                        const isPresent = (booking.attendance || []).some(a => a.participantIndex === index && a.present);
+                        participantsHTML += `
+                            <div class="participant-checkbox">
+                                <input type="checkbox" id="cert_participant_${index}" value="${index}" ${isPresent ? 'checked' : ''}>
+                                <label for="cert_participant_${index}">
+                                    ${sanitizeInput(participant.name)} 
+                                    <span class="age-badge">Age: ${participant.age}</span>
+                                </label>
+                            </div>
+                        `;
+                    });
+                    
                     modalBody.innerHTML = `
                         <p><strong>Booking ID:</strong> ${sanitizeInput(booking.bookingId)}</p>
                         <p><strong>Contact:</strong> ${sanitizeInput(booking.contactPerson)}</p>
-                        <p><strong>Present Participants:</strong> ${presentParticipants.length} of ${booking.quantity}</p>
                         
                         <div style="margin: 20px 0;">
-                            <h4>Participants to receive certificates:</h4>
-                            <ul style="list-style: none; padding: 0;">
-                                ${presentParticipants.map(p => `
-                                    <li style="padding: 8px; border-bottom: 1px solid #eee;">
-                                        <i class="fas fa-user" style="color: #4CAF50;"></i> ${sanitizeInput(p.name)} (Age ${p.age})
-                                    </li>
-                                `).join('')}
-                            </ul>
+                            <h4>Select participants to generate certificates:</h4>
+                            <button class="select-all-btn" onclick="selectAllParticipants(true)">
+                                <i class="fas fa-check-square"></i> Select All
+                            </button>
+                            <button class="select-all-btn" onclick="selectAllParticipants(false)">
+                                <i class="fas fa-square"></i> Deselect All
+                            </button>
+                            
+                            <div class="participant-selector" id="participantSelector">
+                                ${participantsHTML}
+                            </div>
                         </div>
                         
                         <div class="certificate-controls">
-                            <button class="btn btn-primary" onclick="sendCertificates('${booking.id}')">
-                                <i class="fas fa-envelope"></i> Send Certificates via Email
+                            <button class="btn btn-primary" onclick="generateSelectedCertificates('${booking.id}')">
+                                <i class="fas fa-file-pdf"></i> Generate Certificates for Selected
                             </button>
-                            <button class="btn btn-secondary" onclick="previewCertificates('${booking.id}')">
-                                <i class="fas fa-eye"></i> Preview Certificates
+                            <button class="btn btn-secondary" onclick="previewSelectedCertificates('${booking.id}')">
+                                <i class="fas fa-eye"></i> Preview Selected
                             </button>
                         </div>
                         
@@ -1889,6 +1971,431 @@
             } finally {
                 hideLoading();
             }
+        }
+
+        // Helper function to select/deselect all participants
+        window.selectAllParticipants = function(select) {
+            const checkboxes = document.querySelectorAll('#participantSelector input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = select;
+            });
+        };
+
+        // ============================================
+        // GENERATE SELECTED CERTIFICATES
+        // ============================================
+        async function generateSelectedCertificates(bookingId) {
+            try {
+                const doc = await db.collection('bookings').doc(bookingId).get();
+                if (!doc.exists) {
+                    alert('Booking not found');
+                    return;
+                }
+                
+                const booking = doc.data();
+                
+                // Get selected participant indices
+                const selectedIndices = [];
+                const checkboxes = document.querySelectorAll('#participantSelector input[type="checkbox"]');
+                checkboxes.forEach((cb, index) => {
+                    if (cb.checked) {
+                        selectedIndices.push(index);
+                    }
+                });
+                
+                if (selectedIndices.length === 0) {
+                    alert('Please select at least one participant.');
+                    return;
+                }
+                
+                // Get selected participants
+                const selectedParticipants = selectedIndices.map(index => ({
+                    ...booking.participants[index],
+                    index: index
+                }));
+                
+                // Generate certificate for each selected participant (as separate pages)
+                const certificateHTML = generateIndividualCertificates(selectedParticipants, booking);
+                
+                const printWindow = window.open('', '_blank');
+                printWindow.document.write(certificateHTML);
+                printWindow.document.close();
+                
+            } catch (error) {
+                console.error('Error generating certificates:', error);
+                alert('Error generating certificates');
+            }
+        }
+
+        // ============================================
+        // PREVIEW SELECTED CERTIFICATES
+        // ============================================
+        async function previewSelectedCertificates(bookingId) {
+            try {
+                const doc = await db.collection('bookings').doc(bookingId).get();
+                if (!doc.exists) {
+                    alert('Booking not found');
+                    return;
+                }
+                
+                const booking = doc.data();
+                
+                // Get selected participant indices
+                const selectedIndices = [];
+                const checkboxes = document.querySelectorAll('#participantSelector input[type="checkbox"]');
+                checkboxes.forEach((cb, index) => {
+                    if (cb.checked) {
+                        selectedIndices.push(index);
+                    }
+                });
+                
+                if (selectedIndices.length === 0) {
+                    alert('Please select at least one participant.');
+                    return;
+                }
+                
+                // Get selected participants
+                const selectedParticipants = selectedIndices.map(index => ({
+                    ...booking.participants[index],
+                    index: index
+                }));
+                
+                // Generate certificate for each selected participant (as separate pages)
+                const certificateHTML = generateIndividualCertificates(selectedParticipants, booking);
+                
+                const printWindow = window.open('', '_blank');
+                printWindow.document.write(certificateHTML);
+                printWindow.document.close();
+                
+            } catch (error) {
+                console.error('Error previewing certificates:', error);
+                alert('Error generating certificate preview');
+            }
+        }
+
+        // ============================================
+        // GENERATE INDIVIDUAL CERTIFICATES (one per page)
+        // ============================================
+        function generateIndividualCertificates(participants, booking) {
+            const date = new Date().toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            
+            // Generate certificate for each participant (each on a new page)
+            const certificatesHTML = participants.map((participant, idx) => {
+                // Generate unique certificate ID
+                const certId = `YSD2026-${booking.bookingId}-${String(participant.index + 1).padStart(3, '0')}`;
+                
+                // Generate QR code data (simple representation - in production you'd use a QR library)
+                const qrData = `https://verify.ysd2026.upm.edu.my/cert/${certId}`;
+                
+                return `
+                    <div class="certificate-page" ${idx < participants.length - 1 ? 'style="page-break-after: always;"' : ''}>
+                        <div class="certificate-border">
+                            <div class="certificate-content">
+                                <!-- Logo and Organization -->
+                                <div class="logo-section">
+                                    <div class="logo-container">
+                                        <img src="upm.png" alt="UPM Logo" style="width: 100px; height: auto; margin-bottom: 10px;">
+                                    </div>
+                                    <div class="org-name">UNIVERSITI PUTRA MALAYSIA</div>
+                                    <div class="org-sub">(Inspiring Futures)</div>
+                                </div>
+                                
+                                <!-- Certificate Title -->
+                                <div class="certificate-title">CERTIFICATE OF PARTICIPATION</div>
+                                
+                                <!-- Statement -->
+                                <div class="statement">
+                                    This is to certify that
+                                </div>
+                                
+                                <!-- Participant Name -->
+                                <div class="participant-name">${sanitizeInput(participant.name)}</div>
+                                
+                                <!-- Statement Continued -->
+                                <div class="statement">
+                                    has successfully participated in
+                                </div>
+                                
+                                <!-- Event Name -->
+                                <div class="event-name">YOUTH SPORTS DAY 2026 (YSD2026)</div>
+                                
+                                <!-- Event Details -->
+                                <div class="event-details">
+                                    <div class="detail-row">
+                                        <span class="detail-label">Event Date:</span>
+                                        <span class="detail-value">13th June 2026</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Venue:</span>
+                                        <span class="detail-value">Universiti Putra Malaysia, Serdang</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Age Group:</span>
+                                        <span class="detail-value">${participant.age} years</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Signatures -->
+                                <div class="signatures">
+                                    <div class="signature-item">
+                                        <div class="signature-line"></div>
+                                        <div class="signature-name">Prof. Datin Paduka Dr. Aini Ideris</div>
+                                        <div class="signature-title">Vice-Chancellor</div>
+                                        <div class="signature-org">Universiti Putra Malaysia</div>
+                                    </div>
+                                    <div class="signature-item">
+                                        <div class="signature-line"></div>
+                                        <div class="signature-name">Dr. Ahmad Faizal</div>
+                                        <div class="signature-title">Event Director</div>
+                                        <div class="signature-org">YSD2026</div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Stamp and Unique Identifier -->
+                                <div class="footer-section">
+                                    <div class="stamp">
+                                        <i class="fas fa-stamp" style="font-size: 3rem; color: #4CAF50; opacity: 0.5;"></i>
+                                        <div>OFFICIAL STAMP</div>
+                                    </div>
+                                    <div class="unique-id">
+                                        <div class="qr-placeholder">
+                                            <i class="fas fa-qrcode" style="font-size: 2rem;"></i>
+                                            <div class="qr-label">Scan to Verify</div>
+                                        </div>
+                                        <div class="cert-id">ID: ${certId}</div>
+                                        <div class="issue-date">Issued: ${date}</div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Verification Note -->
+                                <div class="verification-note">
+                                    This certificate can be verified online at verify.ysd2026.upm.edu.my
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            return `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>YSD2026 Certificates of Participation</title>
+                    <style>
+                        body {
+                            font-family: 'Times New Roman', serif;
+                            margin: 0;
+                            padding: 20px;
+                            background: #f0f0f0;
+                        }
+                        .certificate-page {
+                            max-width: 1100px;
+                            margin: 0 auto 20px;
+                            background: white;
+                            padding: 30px;
+                            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+                            page-break-after: always;
+                        }
+                        .certificate-border {
+                            border: 15px solid #4CAF50;
+                            padding: 30px;
+                            min-height: 800px;
+                            position: relative;
+                            background: white;
+                        }
+                        .certificate-content {
+                            text-align: center;
+                            position: relative;
+                        }
+                        .logo-section {
+                            margin-bottom: 20px;
+                        }
+                        .logo-container {
+                            width: 100px;
+                            height: 100px;
+                            margin: 0 auto 10px;
+                            background: #f5f5f5;
+                            border-radius: 50%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            border: 2px solid #4CAF50;
+                        }
+                        .org-name {
+                            font-size: 1.8rem;
+                            font-weight: bold;
+                            color: #2c3e50;
+                            letter-spacing: 2px;
+                        }
+                        .org-sub {
+                            font-size: 1rem;
+                            color: #666;
+                            font-style: italic;
+                        }
+                        .certificate-title {
+                            font-size: 2.2rem;
+                            color: #4CAF50;
+                            margin: 30px 0;
+                            text-transform: uppercase;
+                            letter-spacing: 3px;
+                            font-weight: bold;
+                            border-bottom: 2px solid #4CAF50;
+                            display: inline-block;
+                            padding-bottom: 10px;
+                        }
+                        .statement {
+                            font-size: 1.2rem;
+                            color: #2c3e50;
+                            margin: 15px 0;
+                        }
+                        .participant-name {
+                            font-size: 3rem;
+                            color: #2c3e50;
+                            margin: 20px 0;
+                            font-weight: bold;
+                            text-transform: uppercase;
+                            letter-spacing: 2px;
+                            border-bottom: 2px dashed #4CAF50;
+                            display: inline-block;
+                            padding-bottom: 10px;
+                        }
+                        .event-name {
+                            font-size: 2rem;
+                            color: #4CAF50;
+                            margin: 20px 0;
+                            font-weight: bold;
+                        }
+                        .event-details {
+                            background: #f9f9f9;
+                            padding: 20px;
+                            border-radius: 10px;
+                            margin: 30px auto;
+                            max-width: 600px;
+                            border-left: 4px solid #4CAF50;
+                        }
+                        .detail-row {
+                            display: flex;
+                            justify-content: center;
+                            gap: 10px;
+                            margin: 10px 0;
+                            font-size: 1.1rem;
+                        }
+                        .detail-label {
+                            font-weight: bold;
+                            color: #2c3e50;
+                            min-width: 100px;
+                            text-align: right;
+                        }
+                        .detail-value {
+                            color: #666;
+                            text-align: left;
+                        }
+                        .signatures {
+                            display: flex;
+                            justify-content: space-around;
+                            margin: 40px 0;
+                            gap: 30px;
+                        }
+                        .signature-item {
+                            text-align: center;
+                            flex: 1;
+                        }
+                        .signature-line {
+                            width: 200px;
+                            height: 1px;
+                            background: #333;
+                            margin: 10px auto;
+                        }
+                        .signature-name {
+                            font-weight: bold;
+                            color: #2c3e50;
+                            font-size: 1.1rem;
+                        }
+                        .signature-title {
+                            color: #666;
+                            font-size: 0.95rem;
+                        }
+                        .signature-org {
+                            color: #4CAF50;
+                            font-size: 0.9rem;
+                            font-style: italic;
+                        }
+                        .footer-section {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-end;
+                            margin-top: 40px;
+                            padding-top: 20px;
+                            border-top: 2px dashed #4CAF50;
+                        }
+                        .stamp {
+                            text-align: center;
+                            opacity: 0.8;
+                        }
+                        .unique-id {
+                            text-align: center;
+                        }
+                        .qr-placeholder {
+                            background: #f5f5f5;
+                            padding: 10px;
+                            border-radius: 5px;
+                            margin-bottom: 5px;
+                        }
+                        .qr-label {
+                            font-size: 0.8rem;
+                            color: #666;
+                        }
+                        .cert-id {
+                            font-family: monospace;
+                            font-size: 0.9rem;
+                            color: #4CAF50;
+                            font-weight: bold;
+                        }
+                        .issue-date {
+                            font-size: 0.85rem;
+                            color: #666;
+                        }
+                        .verification-note {
+                            margin-top: 20px;
+                            font-size: 0.85rem;
+                            color: #666;
+                            font-style: italic;
+                            border-top: 1px solid #eee;
+                            padding-top: 10px;
+                        }
+                        @media print {
+                            body { background: white; }
+                            .certificate-page { 
+                                box-shadow: none; 
+                                padding: 0;
+                                margin: 0;
+                            }
+                            .certificate-border {
+                                border: 15px solid #4CAF50;
+                            }
+                            .no-print { display: none; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    ${certificatesHTML}
+                    
+                    <div class="no-print" style="text-align: center; margin-top: 20px; position: fixed; bottom: 20px; right: 20px;">
+                        <button onclick="window.print()" style="padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; margin-right: 10px;">
+                            <i class="fas fa-print"></i> Print Certificates
+                        </button>
+                        <button onclick="window.close()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </body>
+                </html>
+            `;
         }
 
         // ============================================
@@ -1950,211 +2457,6 @@
             } finally {
                 hideLoading();
             }
-        }
-
-        // ============================================
-        // PREVIEW CERTIFICATES (with sanitized output)
-        // ============================================
-        async function previewCertificates(bookingId) {
-            try {
-                const doc = await db.collection('bookings').doc(bookingId).get();
-                if (!doc.exists) {
-                    alert('Booking not found');
-                    return;
-                }
-                
-                const booking = doc.data();
-                
-                // Get present participants
-                const presentParticipants = (booking.participants || []).filter((p, index) => 
-                    (booking.attendance || []).some(a => a.participantIndex === index && a.present)
-                );
-                
-                if (presentParticipants.length === 0) {
-                    alert('No present participants to preview certificates for.');
-                    return;
-                }
-                
-                // Generate certificate preview
-                const certificateHTML = generateCertificateHTML(presentParticipants[0], booking);
-                
-                const printWindow = window.open('', '_blank');
-                printWindow.document.write(certificateHTML);
-                printWindow.document.close();
-                
-            } catch (error) {
-                console.error('Error previewing certificates:', error);
-                alert('Error generating certificate preview');
-            }
-        }
-
-        // ============================================
-        // GENERATE CERTIFICATE HTML (with sanitization)
-        // ============================================
-        function generateCertificateHTML(participant, booking) {
-            const date = new Date().toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-            });
-            
-            return `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>YSD2026 Certificate of Participation</title>
-                    <style>
-                        body {
-                            font-family: 'Georgia', serif;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            min-height: 100vh;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                            padding: 20px;
-                        }
-                        .certificate {
-                            background: white;
-                            padding: 60px;
-                            border-radius: 20px;
-                            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                            max-width: 900px;
-                            width: 100%;
-                            position: relative;
-                            overflow: hidden;
-                        }
-                        .certificate::before {
-                            content: '';
-                            position: absolute;
-                            top: 0;
-                            left: 0;
-                            right: 0;
-                            bottom: 0;
-                            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="%23f0f0f0"><path d="M10,10 L90,10 L90,90 L10,90 Z" stroke="%23ddd" fill="none" stroke-width="2"/><circle cx="50" cy="50" r="40" stroke="%23ddd" fill="none" stroke-width="2"/></svg>') repeat;
-                            opacity: 0.1;
-                            pointer-events: none;
-                        }
-                        .header {
-                            text-align: center;
-                            margin-bottom: 40px;
-                            position: relative;
-                        }
-                        .header h1 {
-                            color: #2c3e50;
-                            font-size: 3rem;
-                            margin-bottom: 10px;
-                            border-bottom: 3px solid #4CAF50;
-                            display: inline-block;
-                            padding-bottom: 10px;
-                        }
-                        .content {
-                            text-align: center;
-                            margin: 40px 0;
-                        }
-                        .content h2 {
-                            color: #666;
-                            font-size: 1.8rem;
-                            margin-bottom: 20px;
-                        }
-                        .participant-name {
-                            font-size: 3.5rem;
-                            color: #2c3e50;
-                            margin: 30px 0;
-                            font-weight: bold;
-                            text-transform: uppercase;
-                            letter-spacing: 2px;
-                        }
-                        .details {
-                            background: #f9f9f9;
-                            padding: 20px;
-                            border-radius: 10px;
-                            margin: 30px 0;
-                        }
-                        .details p {
-                            margin: 10px 0;
-                            font-size: 1.2rem;
-                        }
-                        .signature {
-                            display: flex;
-                            justify-content: space-around;
-                            margin-top: 60px;
-                        }
-                        .signature-line {
-                            text-align: center;
-                        }
-                        .signature-line .line {
-                            width: 200px;
-                            height: 1px;
-                            background: #333;
-                            margin-bottom: 10px;
-                        }
-                        .footer {
-                            text-align: center;
-                            margin-top: 40px;
-                            color: #666;
-                            font-size: 0.9rem;
-                        }
-                        .medal {
-                            font-size: 4rem;
-                            color: #ffd700;
-                            margin: 20px 0;
-                        }
-                        @media print {
-                            body { background: white; }
-                            .certificate { box-shadow: none; }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="certificate">
-                        <div class="header">
-                            <h1>YOUTH SPORTS DAY 2026</h1>
-                            <p>Universiti Putra Malaysia</p>
-                        </div>
-                        
-                        <div class="content">
-                            <div class="medal">🏆</div>
-                            <h2>CERTIFICATE OF PARTICIPATION</h2>
-                            <p>This certificate is proudly presented to</p>
-                            <div class="participant-name">${sanitizeInput(participant.name)}</div>
-                            <p>for active participation in</p>
-                            <p style="font-size: 1.5rem; color: #4CAF50;">YSD2026 UPM Youth Sports Day</p>
-                            <p>held on 13th June 2026</p>
-                            
-                            <div class="details">
-                                <p><strong>Age Group:</strong> ${participant.age} years</p>
-                                <p><strong>Event:</strong> Youth Sports Day 2026</p>
-                                <p><strong>Venue:</strong> Universiti Putra Malaysia, Serdang</p>
-                                <p><strong>Date:</strong> 13th June 2026</p>
-                            </div>
-                        </div>
-                        
-                        <div class="signature">
-                            <div class="signature-line">
-                                <div class="line"></div>
-                                <p>Prof. Datin Paduka Dr. Aini Ideris</p>
-                                <p>Vice-Chancellor, UPM</p>
-                            </div>
-                            <div class="signature-line">
-                                <div class="line"></div>
-                                <p>Dr. Ahmad Faizal</p>
-                                <p>Event Director, YSD2026</p>
-                            </div>
-                        </div>
-                        
-                        <div class="footer">
-                            <p>Certificate ID: YSD2026-${participant.name.replace(/\s+/g, '')}-${Date.now()}</p>
-                            <p>Issued on: ${date}</p>
-                        </div>
-                    </div>
-                    
-                    <div style="text-align: center; margin-top: 20px;" class="no-print">
-                        <button onclick="window.print()">Print Certificate</button>
-                        <button onclick="window.close()">Close</button>
-                    </div>
-                </body>
-                </html>
-            `;
         }
 
         // ============================================
@@ -2327,12 +2629,6 @@
                 return;
             }
             
-            // Validate phone (optional)
-            if (phone && !isValidPhone(phone)) {
-                alert('Please enter a valid Malaysian phone number.');
-                return;
-            }
-            
             // Parse participants (Name, Age) with sanitization
             const participants = [];
             if (participantsText.trim()) {
@@ -2341,8 +2637,8 @@
                     const parts = lines[i].split(',').map(part => part.trim());
                     if (parts.length >= 2) {
                         const age = parseInt(parts[1]);
-                        if (age < 5 || age > 12) {
-                            alert(`Participant ${parts[0]} age must be between 5 and 12.`);
+                        if (isNaN(age) || age < 5 || age > 12) {
+                            alert(`Participant ${parts[0]} must have a valid age between 5 and 12.`);
                             return;
                         }
                         participants.push({
@@ -2399,7 +2695,7 @@
                 
                 // Reset form
                 addBookingForm.reset();
-                newAmount.value = (70 * quantity).toFixed(2);
+                newAmount.value = (70 * 1).toFixed(2);
                 newQuantity.value = '1';
                 
                 // Close modal
@@ -2476,7 +2772,7 @@
             
             // Convert to CSV string
             const csvContent = csvData.map(row => 
-                row.map(cell => `"${cell}"`).join(',')
+                row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
             ).join('\n');
             
             // Create download link
@@ -2592,14 +2888,6 @@
             // Quantity change events
             newQuantity.addEventListener('change', updateNewBookingAmount);
             document.getElementById('editQuantity').addEventListener('change', updateEditBookingAmount);
-            
-            // Add CSRF token to forms
-            const csrfInput = document.createElement('input');
-            csrfInput.type = 'hidden';
-            csrfInput.name = 'csrf_token';
-            csrfInput.value = sessionStorage.getItem('csrf_token') || '';
-            addBookingForm.appendChild(csrfInput.cloneNode(true));
-            editBookingForm.appendChild(csrfInput.cloneNode(true));
         });
 
         // Make functions globally available
@@ -2614,10 +2902,12 @@
         window.updateAttendance = updateAttendance;
         window.openCertificateModal = openCertificateModal;
         window.sendCertificates = sendCertificates;
-        window.previewCertificates = previewCertificates;
+        window.generateSelectedCertificates = generateSelectedCertificates;
+        window.previewSelectedCertificates = previewSelectedCertificates;
     </script>
 </body>
 </html>
+
 
 
 
